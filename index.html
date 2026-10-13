@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aktien Analyse – Preis & Volumen</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
+    header { background: #1e293b; padding: 1rem 1.5rem; border-bottom: 1px solid #334155; }
+    h1 { margin: 0; font-size: 1.4rem; }
+    .container { display: flex; min-height: calc(100vh - 70px); }
+    .sidebar { width: 280px; background: #1e293b; padding: 1rem; border-right: 1px solid #334155; }
+    .main { flex: 1; padding: 1.5rem; overflow-y: auto; }
+    input, button, select { width: 100%; padding: 0.6rem; margin: 0.4rem 0; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: white; box-sizing: border-box; }
+    button { background: #3b82f6; border: none; cursor: pointer; font-weight: 600; }
+    button:hover { background: #2563eb; }
+    .stock-item { background: #334155; padding: 0.5rem; margin: 0.3rem 0; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .remove { background: #ef4444; padding: 0.3rem 0.6rem; width: auto; font-size: 0.8rem; }
+    .card { background: #1e293b; border-radius: 10px; padding: 1rem; margin-bottom: 1.5rem; }
+    .metrics { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.5rem 0; }
+    .metric { background: #0f172a; padding: 0.6rem 1rem; border-radius: 8px; min-width: 140px; }
+    .phase { font-weight: bold; }
+    canvas { max-height: 400px; }
+    .caption { font-size: 0.85rem; color: #94a3b8; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📈 Aktien-Analyse – Preis & Volumen (Dr. David Paul)</h1>
+  </header>
+
+  <div class="container">
+    <div class="sidebar">
+      <h3>Meine Aktien</h3>
+      <input type="text" id="tickerInput" placeholder="Ticker (zB AAPL, SAP.DE)">
+      <input type="number" id="qtyInput" placeholder="Menge (optional)" step="1" min="0">
+      <input type="number" id="priceInput" placeholder="Kaufkurs (optional)" step="0.01" min="0">
+      <button onclick="addStock()">Aktie hinzufügen</button>
+      <div id="stockList"></div>
+      <hr style="border-color:#334155; margin:1.5rem 0;">
+      <label>Tage für Analyse</label>
+      <select id="daysSelect">
+        <option value="30">30 Tage</option>
+        <option value="60" selected>60 Tage</option>
+        <option value="90">90 Tage</option>
+      </select>
+      <button onclick="analyzeAll()">Alle analysieren</button>
+      <p class="caption">Daten von Yahoo Finance. Nur Bildungszwecke – keine Anlageberatung!</p>
+    </div>
+
+    <div class="main" id="results">
+      <p>Fügen Sie den Link Aktien hinzu und klicken Sie auf „Alle analysieren“.</p>
+    </div>
+  </div>
+
+  <script>
+    let stocks = JSON.parse(localStorage.getItem('stocks') || '[]');
+
+    function saveStocks() {
+      localStorage.setItem('stocks', JSON.stringify(stocks));
+      renderStockList();
+    }
+
+    function renderStockList() {
+      const list = document.getElementById('stockList');
+      list.innerHTML = '';
+      stocks.forEach((s, i) => {
+        const div = document.createElement('div');
+        div.className = 'stock-item';
+        div.innerHTML = `<span>${s.ticker}</span> <button class="remove" onclick="removeStock(${i})">✕</button>`;
+        list.appendChild(div);
+      });
+    }
+
+    function addStock() {
+      const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
+      if (!ticker) return;
+      if (stocks.some(s => s.ticker === ticker)) {
+        Alert('Ticker bereits vorhanden');
+        zurückkehren;
+      }
+      stocks.push({
+        Ticker,
+        qty: parseFloat(document.getElementById('qtyInput').value) || 0,
+        Kaufpreis: parseFloat(document.getElementById('priceInput').value) || 0
+      });
+      document.getElementById('tickerInput').value = '';
+      saveStocks();
+    }
+
+    Funktion removeStock(index) {
+      stocks.splice(index, 1);
+      saveStocks();
+    }
+
+    async function fetchData(ticker, days) {
+      const range = days <= 30 ? '1mo' : days <= 90 ? '3mo' : '6mo';
+      const url = `https://corsproxy.io/?https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=${range}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      const result = json.chart.result[0];
+      const timestamps = result.timestamp;
+      const quotes = result.indicators.quote[0];
+      const data = [];
+      for (let i = 0; i < timestamps.length; i++) {
+        if (quotes.close[i] != null) {
+          data.push({
+            Datum: new Date(timestamps[i] * 1000).toLocaleDateString('de-DE'),
+            schließen: quotes.close[i],
+            Volumen: quotes.volume[i] || 0,
+            hoch: quotes.high[i],
+            low: quotes.low[i],
+            öffnen: quotes.open[i]
+          });
+        }
+      }
+      return data.slice(-days);
+    }
+
+    function analyzePhase(data, lookback = 10) {
+      if (data.length < Lookback + 1) return { Phase: 'Zu wenig Daten', Farbe: '#94a3b8' };
+      const recent = data.slice(-lookback);
+      let upVol = 0, downVol = 0, upCount = 0, downCount = 0;
+      for (let i = 1; i < recent.length; i++) {
+        const change = recent[i].close - recent[i-1].close;
+        if (change > 0) {
+          upVol += recent[i].volume;
+          upCount++;
+        } else if (change < 0) {
+          downVol += recent[i].volume;
+          downCount++;
+        }
+      }
+      const avgUp = upCount ? upVol / upCount : 0;
+      const avgDown = downCount ? downVol / downCount : 0;
+      const avgVol = recent.reduce((s, d) => s + d.volume, 0) / recent.length;
+
+      setze bullish = 0, bearish = 0;
+      if (avgUp > avgVol * 1.1) bullish++;
+      if (avgDown < avgVol * 0.9) bullish++;
+      if (avgDown > avgVol * 1.2) bearish++;
+      if (avgUp < avgVol * 0.8) bearish++;
+
+      if (bullish > bearish) return { phase: '🟢 Akkumulation / Bullisch', color: '#22c55e' };
+      if (bearish > bullish) return { phase: '🔴 Distribution / Bearisch', color: '#ef4444' };
+      return { Phase: '🟡 Gemischt / Unklar', Farbe: '#eab308' };
+    }
+
+    async function analyzeAll() {
+      const results = document.getElementById('results');
+      results.innerHTML = '<p>Daten laden…</p>';
+      const days = parseInt(document.getElementById('daysSelect').value);
+      let html = '';
+
+      for (const stock of stocks) {
+        versuchen {
+          const data = await fetchData(stock.ticker, days);
+          if (!data.length) throw new Error('Keine Daten');
+          const last = data[data.length - 1];
+          const prev = data[data.length - 2];
+          const change = ((last.close / prev.close - 1) * 100).toFixed(2);
+          const phase = analyzePhase(data);
+
+          let pnlText = '';
+          if (stock.qty > 0 && stock.buyPrice > 0) {
+            const pnl = (last.close - stock.buyPrice) * stock.qty;
+            const pnlPct = ((last.close / stock.buyPrice - 1) * 100).toFixed(1);
+            pnlText = `<div class="caption">Position: ${stock.qty} Stück @ ${stock.buyPrice.toFixed(2)} → P&L: ${pnl.toFixed(2)} (${pnlPct}%)</div>`;
+          }
+
+          html += `
+            <div class="card">
+              <h2>${stock.ticker}</h2>
+              <div class="metrics">
+                <div class="metric"><strong>Kurs</strong><br>${last.close.toFixed(2)}</div>
+                <div class="metric"><strong>Änderung</strong><br>${change}%</div>
+                <div class="metric phase" style="color:${phase.color}"><strong>Phase</strong><br>${phase.phase}</div>
+              </div>
+              ${pnlText}
+              <canvas id="chart-${stock.ticker}"></canvas>
+              <p class="caption">Letzte ${days} Tage • Volumen unter den Kerzen beachten</p>
+            </div>`;
+        } catch (e) {
+          html += `<div class="card"><h2>${stock.ticker}</h2><p style="color:#ef4444">Fehler: ${e.message}</p></div>`;
+        }
+      }
+      results.innerHTML = html || '<p>Keine Aktien vorhanden.</p>';
+
+      // Diagramme zeichnen
+      for (const stock of stocks) {
+        versuchen {
+          const data = await fetchData(stock.ticker, days);
+          const ctx = document.getElementById(`chart-${stock.ticker}`);
+          if (!ctx) continue;
+          new Chart(ctx, {
+            Typ: 'Zeile',
+            Daten: {
+              Labels: data.map(d => d.date),
+              Datensätze: [
+                {
+                  Bezeichnung: 'Kurs',
+                  Daten: data.map(d => d.close),
+                  borderColor: '#3b82f6',
+                  yAxisID: 'y',
+                  Spannung: 0,1,
+                  Punktradius: 0
+                },
+                {
+                  Bezeichnung: 'Volumen',
+                  Daten: data.map(d => d.volume),
+                  Typ: 'bar',
+                  backgroundColor: 'rgba(59, 130, 246, 0.3)',
+                  y-Achsen-ID: 'y1'
+                }
+              ]
+            },
+            Optionen: {
+              responsive: true,
+              Interaktion: { Modus: 'index', Schnittmenge: false },
+              Skalen: {
+                y: { position: 'left', title: { display: true, text: 'Kurs' } },
+                y1: { position: 'right', title: { display: true, text: 'Volumen' }, grid: { drawOnChartArea: false } }
+              },
+              plugins: { legend: { display: true } }
+            }
+          });
+        } fangen {}
+      }
+    }
+
+    // Initialisieren
+    renderStockList();
+  </script>
+</body>
+</html>
+
+
