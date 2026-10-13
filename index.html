@@ -33,7 +33,7 @@
   <div class="container">
     <div class="sidebar">
       <h3>Meine Aktien</h3>
-      <input type="text" id="tickerInput" placeholder="Ticker (z.B. AAPL, SAP.DE)">
+      <input type="text" id="tickerInput" placeholder="Ticker (z.B. AAPL, SAP.DE, ASML)">
       <input type="number" id="qtyInput" placeholder="Menge (optional)" step="1" min="0">
       <input type="number" id="priceInput" placeholder="Kaufkurs (optional)" step="0.01" min="0">
       <button onclick="addStock()">Aktie hinzufügen</button>
@@ -96,23 +96,40 @@
 
     async function fetchData(ticker, days) {
       const range = days <= 30 ? '1mo' : days <= 90 ? '3mo' : '6mo';
-      const url = `https://corsproxy.io/?https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=${range}`;
-      const res = await fetch(url);
-      const json = await res.json();
-      const result = json.chart.result[0];
-      const timestamps = result.timestamp;
-      const quotes = result.indicators.quote[0];
-      const data = [];
-      for (let i = 0; i < timestamps.length; i++) {
-        if (quotes.close[i] != null) {
-          data.push({
-            date: new Date(timestamps[i] * 1000).toLocaleDateString('de-DE'),
-            close: quotes.close[i],
-            volume: quotes.volume[i] || 0
-          });
+      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=${range}`;
+
+      const proxies = [
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
+        `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`
+      ];
+
+      let lastError;
+      for (const url of proxies) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          const result = json.chart?.result?.[0];
+          if (!result) throw new Error('Keine Daten in der Antwort');
+
+          const timestamps = result.timestamp;
+          const quotes = result.indicators.quote[0];
+          const data = [];
+          for (let i = 0; i < timestamps.length; i++) {
+            if (quotes.close[i] != null) {
+              data.push({
+                date: new Date(timestamps[i] * 1000).toLocaleDateString('de-DE'),
+                close: quotes.close[i],
+                volume: quotes.volume[i] || 0
+              });
+            }
+          }
+          return data.slice(-days);
+        } catch (e) {
+          lastError = e;
         }
       }
-      return data.slice(-days);
+      throw new Error('Daten konnten nicht geladen werden: ' + (lastError?.message || 'Unbekannter Fehler'));
     }
 
     function analyzePhase(data, lookback = 10) {
