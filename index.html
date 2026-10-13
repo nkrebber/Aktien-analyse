@@ -33,7 +33,7 @@
   <div class="container">
     <div class="sidebar">
       <h3>Meine Aktien</h3>
-      <input type="text" id="tickerInput" placeholder="Ticker (zB AAPL, SAP.DE)">
+      <input type="text" id="tickerInput" placeholder="Ticker (z.B. AAPL, SAP.DE)">
       <input type="number" id="qtyInput" placeholder="Menge (optional)" step="1" min="0">
       <input type="number" id="priceInput" placeholder="Kaufkurs (optional)" step="0.01" min="0">
       <button onclick="addStock()">Aktie hinzufügen</button>
@@ -46,11 +46,11 @@
         <option value="90">90 Tage</option>
       </select>
       <button onclick="analyzeAll()">Alle analysieren</button>
-      <p class="caption">Daten von Yahoo Finance. Nur Bildungszwecke – keine Anlageberatung!</p>
+      <p class="caption">Daten von Yahoo Finance. Nur Bildungszwecken – keine Anlageberatung!</p>
     </div>
 
     <div class="main" id="results">
-      <p>Fügen Sie den Link Aktien hinzu und klicken Sie auf „Alle analysieren“.</p>
+      <p>Füge links Aktien hinzu und klicke auf „Alle analysieren“.</p>
     </div>
   </div>
 
@@ -77,19 +77,19 @@
       const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
       if (!ticker) return;
       if (stocks.some(s => s.ticker === ticker)) {
-        Alert('Ticker bereits vorhanden');
-        zurückkehren;
+        alert('Ticker bereits vorhanden');
+        return;
       }
       stocks.push({
-        Ticker,
+        ticker,
         qty: parseFloat(document.getElementById('qtyInput').value) || 0,
-        Kaufpreis: parseFloat(document.getElementById('priceInput').value) || 0
+        buyPrice: parseFloat(document.getElementById('priceInput').value) || 0
       });
       document.getElementById('tickerInput').value = '';
       saveStocks();
     }
 
-    Funktion removeStock(index) {
+    function removeStock(index) {
       stocks.splice(index, 1);
       saveStocks();
     }
@@ -106,12 +106,9 @@
       for (let i = 0; i < timestamps.length; i++) {
         if (quotes.close[i] != null) {
           data.push({
-            Datum: new Date(timestamps[i] * 1000).toLocaleDateString('de-DE'),
-            schließen: quotes.close[i],
-            Volumen: quotes.volume[i] || 0,
-            hoch: quotes.high[i],
-            low: quotes.low[i],
-            öffnen: quotes.open[i]
+            date: new Date(timestamps[i] * 1000).toLocaleDateString('de-DE'),
+            close: quotes.close[i],
+            volume: quotes.volume[i] || 0
           });
         }
       }
@@ -119,7 +116,7 @@
     }
 
     function analyzePhase(data, lookback = 10) {
-      if (data.length < Lookback + 1) return { Phase: 'Zu wenig Daten', Farbe: '#94a3b8' };
+      if (data.length < lookback + 1) return { phase: 'Zu wenig Daten', color: '#94a3b8' };
       const recent = data.slice(-lookback);
       let upVol = 0, downVol = 0, upCount = 0, downCount = 0;
       for (let i = 1; i < recent.length; i++) {
@@ -136,25 +133,25 @@
       const avgDown = downCount ? downVol / downCount : 0;
       const avgVol = recent.reduce((s, d) => s + d.volume, 0) / recent.length;
 
-      setze bullish = 0, bearish = 0;
+      let bullish = 0, bearish = 0;
       if (avgUp > avgVol * 1.1) bullish++;
       if (avgDown < avgVol * 0.9) bullish++;
       if (avgDown > avgVol * 1.2) bearish++;
       if (avgUp < avgVol * 0.8) bearish++;
 
-      if (bullish > bearish) return { phase: '🟢 Akkumulation / Bullisch', color: '#22c55e' };
+      if (bullish > bearish) return { phase: '🟢 Accumulation / Bullisch', color: '#22c55e' };
       if (bearish > bullish) return { phase: '🔴 Distribution / Bearisch', color: '#ef4444' };
-      return { Phase: '🟡 Gemischt / Unklar', Farbe: '#eab308' };
+      return { phase: '🟡 Gemischt / Unklar', color: '#eab308' };
     }
 
     async function analyzeAll() {
       const results = document.getElementById('results');
-      results.innerHTML = '<p>Daten laden…</p>';
+      results.innerHTML = '<p>Lade Daten…</p>';
       const days = parseInt(document.getElementById('daysSelect').value);
       let html = '';
 
       for (const stock of stocks) {
-        versuchen {
+        try {
           const data = await fetchData(stock.ticker, days);
           if (!data.length) throw new Error('Keine Daten');
           const last = data[data.length - 1];
@@ -179,7 +176,7 @@
               </div>
               ${pnlText}
               <canvas id="chart-${stock.ticker}"></canvas>
-              <p class="caption">Letzte ${days} Tage • Volumen unter den Kerzen beachten</p>
+              <p class="caption">Letzte ${days} Tage</p>
             </div>`;
         } catch (e) {
           html += `<div class="card"><h2>${stock.ticker}</h2><p style="color:#ef4444">Fehler: ${e.message}</p></div>`;
@@ -187,52 +184,47 @@
       }
       results.innerHTML = html || '<p>Keine Aktien vorhanden.</p>';
 
-      // Diagramme zeichnen
       for (const stock of stocks) {
-        versuchen {
+        try {
           const data = await fetchData(stock.ticker, days);
           const ctx = document.getElementById(`chart-${stock.ticker}`);
           if (!ctx) continue;
           new Chart(ctx, {
-            Typ: 'Zeile',
-            Daten: {
-              Labels: data.map(d => d.date),
-              Datensätze: [
+            type: 'line',
+            data: {
+              labels: data.map(d => d.date),
+              datasets: [
                 {
-                  Bezeichnung: 'Kurs',
-                  Daten: data.map(d => d.close),
+                  label: 'Kurs',
+                  data: data.map(d => d.close),
                   borderColor: '#3b82f6',
                   yAxisID: 'y',
-                  Spannung: 0,1,
-                  Punktradius: 0
+                  tension: 0.1,
+                  pointRadius: 0
                 },
                 {
-                  Bezeichnung: 'Volumen',
-                  Daten: data.map(d => d.volume),
-                  Typ: 'bar',
+                  label: 'Volumen',
+                  data: data.map(d => d.volume),
+                  type: 'bar',
                   backgroundColor: 'rgba(59, 130, 246, 0.3)',
-                  y-Achsen-ID: 'y1'
+                  yAxisID: 'y1'
                 }
               ]
             },
-            Optionen: {
+            options: {
               responsive: true,
-              Interaktion: { Modus: 'index', Schnittmenge: false },
-              Skalen: {
+              interaction: { mode: 'index', intersect: false },
+              scales: {
                 y: { position: 'left', title: { display: true, text: 'Kurs' } },
                 y1: { position: 'right', title: { display: true, text: 'Volumen' }, grid: { drawOnChartArea: false } }
-              },
-              plugins: { legend: { display: true } }
+              }
             }
           });
-        } fangen {}
+        } catch (e) {}
       }
     }
 
-    // Initialisieren
     renderStockList();
   </script>
 </body>
 </html>
-
-
