@@ -33,7 +33,7 @@
   <div class="container">
     <div class="sidebar">
       <h3>Meine Aktien</h3>
-      <input type="text" id="tickerInput" placeholder="Ticker (z.B. AAPL, SAP.DE, BAS.DE, ASML)">
+      <input type="text" id="tickerInput" placeholder="Ticker (z.B. AAPL, SAP.DE, BAS.DE, ASML, OXY, UAA)">
       <input type="number" id="qtyInput" placeholder="Menge (optional)" step="1" min="0">
       <input type="number" id="priceInput" placeholder="Kaufkurs (optional)" step="0.01" min="0">
       <button onclick="addStock()">Aktie hinzufügen</button>
@@ -86,6 +86,186 @@
         buyPrice: parseFloat(document.getElementById('priceInput').value) || 0
       });
       document.getElementById('tickerInput').value = '';
+      saveStocks();
+    }
+
+    function removeStock(index) {
+      stocks.splice(index, 1);
+      saveStocks();
+    }
+
+    async function fetchData(ticker, days) {
+      const range = days <= 30 ? '1mo' : days <= 90 ? '3mo' : '6mo';
+      const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=${range}`;
+
+      const proxyUrls = [
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
+        `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(yahooUrl)}`,
+        `https://cors.eu.org/${yahooUrl}`,
+        `https://thingproxy.freeboard.io/fetch/${yahooUrl}`,
+        `https://api.allorigins.win/get?url=${encodeURIComponent(yahooUrl)}`,
+        `https://cors-anywhere.herokuapp.com/${yahooUrl}`,
+        `https://proxy.cors.sh/${yahooUrl}`,
+        `https://corsproxy.io/?${yahooUrl}`,
+        `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(yahooUrl)}`
+      ];
+
+      const fetchWithTimeout = (url, timeout = 12000) => {
+        return Promise.race([
+          fetch(url).then(async res => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const text = await res.text();
+            if (url.includes('allorigins.win/get')) {
+              const wrapped = JSON.parse(text);
+              return JSON.parse(wrapped.contents);
+            }
+            return JSON.parse(text);
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), timeout))
+        ]);
+      };
+
+      try {
+        const json = await Promise.any(proxyUrls.map(url => fetchWithTimeout(url)));
+        const result = json.chart?.result?.[0];
+        if (!result) throw new Error('Keine gültigen Daten');
+
+        const timestamps = result.timestamp;
+        const quotes = result.indicators.quote[0];
+        const data = [];
+        for (let i = 0; i < timestamps.length; i++) {
+          if (quotes.close[i] != null) {
+            data.push({
+              date: new Date(timestamps[i] * 1000).toLocaleDateString('de-DE'),
+              close: quotes.close[i],
+              volume: quotes.volume[i] || 0
+            });
+          }
+        }
+        return data.slice(-days);
+      } catch (e) {
+        const msgs = e.errors ? e.errors.map(err => err.message).join(' | ') : e.message;
+        throw new Error('Alle Datenquellen fehlgeschlagen: ' + msgs);
+      }
+    }
+
+    function analyzePhase(data, lookback = 10) {
+      if (data.length < lookback + 1) return { phase: 'Zu wenig Daten', color: '#94a3b8' };
+      const recent = data.slice(-lookback);
+      let upVol = 0, downVol = 0, upCount = 0, downCount = 0;
+      for (let i = 1; i < recent.length; i++) {
+        const change = recent[i].close - recent[i-1].close;
+        if (change > 0) {
+          upVol += recent[i].volume;
+          upCount++;
+        } else if (change < 0) {
+          downVol += recent[i].volume;
+          downCount++;
+        }
+      }
+      const avgUp = upCount ? upVol / upCount : 0;
+      const avgDown = downCount ? downVol / downCount : 0;
+      const avgVol = recent.reduce((s, d) => s + d.volume, 0) / recent.length;
+
+      let bullish = 0, bearish = 0;
+      if (avgUp > avgVol * 1.1) bullish++;
+      if (avgDown < avgVol * 0.9) bullish++;
+      if (avgDown > avgVol * 1.2) bearish++;
+      if (avgUp < avgVol * 0.8) bearish++;
+
+      if (bullish > bearish) return { phase: '🟢 Accumulation / Bullisch', color: '#22c55e' };
+      if (bearish > bullish) return { phase: '🔴 Distribution / Bearisch', color: '#ef4444' };
+      return { phase: '🟡 Gemischt / Unklar', color: '#eab308' };
+    }
+
+    async function analyzeAll() {
+      const results = document.getElementById('results');
+      results.innerHTML = '<p>Lade Daten…</p>';
+      const days = parseInt(document.getElementById('daysSelect').value);
+      let html = '';
+
+      for (const stock of stocks) {
+        try {
+          const data = await fetchData(stock.ticker, days);
+          if (!data.length) throw new Error('Keine Daten');
+          const last = data[data.length - 1];
+          const prev = data[data.length - 2];
+          const change = ((last.close / prev.close - 1) * 100).toFixed(2);
+          const phase = analyzePhase(data);
+
+          let pnlText = '';
+          if (stock.qty > 0 && stock.buyPrice > 0) {
+            const pnl = (last.close - stock.buyPrice) * stock.qty;
+            const pnlPct = ((last.close / stock.buyPrice - 1) * 100).toFixed(1);
+            pnlText = `<div class="caption">Position: ${stock.qty} Stück @ ${stock.buyPrice.toFixed(2)} → P&L: ${pnl.toFixed(2)} (${pnlPct}%)</div>`;
+          }
+
+          html += `
+            <div class="card">
+              <h2>${stock.ticker}</h2>
+              <div class="metrics">
+                <div class="metric"><strong>Kurs</strong><br>${last.close.toFixed(2)}</div>
+                <div class="metric"><strong>Änderung</strong><br>${change}%</div>
+                <div class="metric phase" style="color:${phase.color}"><strong>Phase</strong><br>${phase.phase}</div>
+              </div>
+              ${pnlText}
+              <canvas id="chart-${stock.ticker}"></canvas>
+              <p class="caption">Letzte ${days} Tage</p>
+            </div>`;
+        } catch (e) {
+          html += `<div class="card"><h2>${stock.ticker}</h2><p style="color:#ef4444">Fehler: ${e.message}</p></div>`;
+        }
+      }
+      results.innerHTML = html || '<p>Keine Aktien vorhanden.</p>';
+
+      for (const stock of stocks) {
+        try {
+          const data = await fetchData(stock.ticker, days);
+          const ctx = document.getElementById(`chart-${stock.ticker}`);
+          if (!ctx) continue;
+          new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: data.map(d => d.date),
+              datasets: [
+                {
+                  label: 'Kurs',
+                  data: data.map(d => d.close),
+                  borderColor: '#3b82f6',
+                  yAxisID: 'y',
+                  tension: 0.1,
+                  pointRadius: 0
+                },
+                {
+                  label: 'Volumen',
+                  data: data.map(d => d.volume),
+                  type: 'bar',
+                  backgroundColor: 'rgba(59, 130, 246, 0.3)',
+                  yAxisID: 'y1'
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              interaction: { mode: 'index', intersect: false },
+              scales: {
+                y: { position: 'left', title: { display: true, text: 'Kurs' } },
+                y1: { position: 'right', title: { display: true, text: 'Volumen' }, grid: { drawOnChartArea: false } }
+              }
+            }
+          });
+        } catch (e) {}
+      }
+    }
+
+    renderStockList();
+  </script>
+</body>
+</html>
+```
+
+('tickerInput').value = '';
       saveStocks();
     }
 
